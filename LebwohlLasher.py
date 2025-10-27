@@ -254,7 +254,7 @@ def MC_step(arr,Ts,nmax):
                     arr[ix,iy] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
-def main(program, nsteps, nmax, temp, pflag):
+def main(program, nsteps, nmax, temp, pflag,save_file):
     """
     Arguments:
 	  program (string) = the name of the program;
@@ -272,9 +272,9 @@ def main(program, nsteps, nmax, temp, pflag):
     # Plot initial frame of lattice
     plotdat(lattice,pflag,nmax)
     # Create arrays to store energy, acceptance ratio and order parameter
-    energy = np.zeros(nsteps+1,dtype=np.dtype)
-    ratio = np.zeros(nsteps+1,dtype=np.dtype)
-    order = np.zeros(nsteps+1,dtype=np.dtype)
+    energy = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    ratio = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    order = np.zeros(nsteps+1,dtype=np.dtype('d'))
     # Set initial values in arrays
     energy[0] = all_energy(lattice,nmax)
     ratio[0] = 0.5 # ideal value
@@ -292,20 +292,22 @@ def main(program, nsteps, nmax, temp, pflag):
     # Final outputs
     print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
     # Plot final frame of lattice and generate output file
-    savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
+    if save_file==0:
+      savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
     plotdat(lattice,pflag,nmax)
 #=======================================================================
 # Main part of program, getting command line arguments and calling
 # main simulation function.
 #
 if __name__ == '__main__':
-    if int(len(sys.argv)) == 5:
+    if int(len(sys.argv)) == 6:
         PROGNAME = sys.argv[0]
         ITERATIONS = int(sys.argv[1])
         SIZE = int(sys.argv[2])
         TEMPERATURE = float(sys.argv[3])
         PLOTFLAG = int(sys.argv[4])
-        main(PROGNAME, ITERATIONS, SIZE, TEMPERATURE, PLOTFLAG)
+        SAVEFILE = int(sys.argv[5])
+        main(PROGNAME, ITERATIONS, SIZE, TEMPERATURE, PLOTFLAG, SAVEFILE)
     else:
-        print("Usage: python {} <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG>".format(sys.argv[0]))
+        print("Usage: python {} <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG> <SAVEFILE>".format(sys.argv[0]))
 #=======================================================================
