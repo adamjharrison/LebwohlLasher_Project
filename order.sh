@@ -3,7 +3,7 @@
 START=0.05
 INCREMENT=0.05
 END=1.60
-RUNS=5
+RUNS=10
 
 echo "Temp,Order"
 for TEMP in $(seq $START $INCREMENT $END)

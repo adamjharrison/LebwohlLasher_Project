@@ -1,5 +1,5 @@
 import pytest
-import run_LebwohlLasher as LL
+import LebwohlLasher_cython as LL
 import numpy as np
 
 def test_initdat():

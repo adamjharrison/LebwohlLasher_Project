@@ -28,7 +28,10 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from libc.math cimport cos
+from cython.parallel cimport prange
+cimport cython
+cimport openmp
+from libc.math cimport cos, exp
 cimport numpy as cnp
 cnp.import_array()
 #=======================================================================
@@ -130,7 +133,9 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax)noexcept nogil:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -158,17 +163,17 @@ cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
+    cos_ang = cos(arr[ix,iy]-arr[ixp,iy])
+    en += 0.5*(1.0 - 3.0*cos_ang*cos_ang)
+    cos_ang = cos(arr[ix,iy]-arr[ixm,iy])
+    en += 0.5*(1.0 - 3.0*cos_ang*cos_ang)
+    cos_ang = cos(arr[ix,iy]-arr[ix,iyp])
+    en += 0.5*(1.0 - 3.0*cos_ang*cos_ang)
+    cos_ang = cos(arr[ix,iy]-arr[ix,iym])
+    en += 0.5*(1.0 - 3.0*cos_ang*cos_ang)
     return en
 #=======================================================================
-cdef double all_energy(double[:,:] arr,int nmax):
+cpdef double all_energy(double[:,:] arr,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -182,12 +187,14 @@ cdef double all_energy(double[:,:] arr,int nmax):
     cdef:
       double enall = 0.0
       int i, j
-    for i in range(nmax):
+    for i in prange(nmax,nogil=True,num_threads=1):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-cdef double get_order(double[:,:] arr,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double get_order(double[:,:] arr,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -201,24 +208,27 @@ cdef double get_order(double[:,:] arr,int nmax):
     """
     cdef:
       double[:, :, :] lab
-      cnp.ndarray[double, ndim=2] Qab = np.zeros((3,3),dtype=np.float64)
-      cnp.ndarray[double, ndim=2] delta = np.eye(3,3,dtype=np.float64)
+      double[:,:] Qab = np.zeros((3,3),dtype=np.double)
+      double[:,:] delta = np.eye(3,3,dtype=np.double)
       int a, b, i, j
+      int nmax_sq = 2*nmax*nmax
     #
     # Generate a 3D unit vector for each cell (i,j) and
     # put it in a (3,i,j) array.
     #
+    
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
-    for a in range(3):
-        for b in range(3):
-            for i in range(nmax):
-                for j in range(nmax):
-                    Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
-    Qab = Qab/(2*nmax*nmax)
+    for i in prange(nmax,nogil=True,num_threads=1):
+        for j in range(nmax):
+            for a in range(3):
+                for b in range(3):
+                    Qab[a,b] += (3*lab[a,i,j]*lab[b,i,j] - delta[a,b])/nmax_sq
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-def MC_step(double[:,:] arr,double Ts,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -249,7 +259,8 @@ def MC_step(double[:,:] arr,double Ts,int nmax):
     xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
+    cdef double [:,:] rand_dist = np.random.random_sample((nmax,nmax))
+    for i in prange(nmax, nogil=True, num_threads=1):
         for j in range(nmax):
             ix = xran[i,j]
             iy = yran[i,j]
@@ -262,9 +273,9 @@ def MC_step(double[:,:] arr,double Ts,int nmax):
             else:
             # Now apply the Monte Carlo test - compare
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+                boltz = exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0):
+                if boltz >= rand_dist[i,j]:
                     accept += 1
                 else:
                     arr[ix,iy] -= ang
@@ -297,12 +308,12 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
     order[0] = get_order(lattice,nmax)
 
     # Begin doing and timing some MC steps.
-    initial = time.time()
+    initial = openmp.omp_get_wtime()
     for it in range(1,nsteps+1):
         ratio[it] = MC_step(lattice,temp,nmax)
         energy[it] = all_energy(lattice,nmax)
         order[it] = get_order(lattice,nmax)
-    final = time.time()
+    final = openmp.omp_get_wtime()
     runtime = final-initial
     
     # Final outputs
