@@ -163,7 +163,7 @@ def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-@numba.njit()
+@numba.njit(parallel=True)
 def all_energy(arr: np.ndarray,nmax: int)->float:
     """
     Arguments:
@@ -176,12 +176,12 @@ def all_energy(arr: np.ndarray,nmax: int)->float:
 	  enall (float) = reduced energy of lattice.
     """
     enall = 0.0
-    for i in range(nmax):
+    for i in numba.prange(nmax):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-@numba.njit
+@numba.njit(parallel=True)
 def get_order(arr: np.ndarray,nmax: int)-> float:
     """
     Arguments:
@@ -201,12 +201,13 @@ def get_order(arr: np.ndarray,nmax: int)-> float:
     # put it in a (3,i,j) array.
     #
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
-    for a in range(3):
-        for b in range(3):
-            for i in range(nmax):
-                for j in range(nmax):
+    for i in numba.prange(nmax):
+        for j in range(nmax):
+            for a in range(3):
+                for b in range(3):
                     Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
     Qab = Qab/(2*nmax*nmax)
+    Qab = (Qab + Qab.T) / 2.0 #averages out numerical differences due to parallel operations
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
