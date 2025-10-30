@@ -187,7 +187,7 @@ cpdef double all_energy(double[:,:] arr,int nmax):
     cdef:
       double enall = 0.0
       int i, j
-    for i in prange(nmax,nogil=True,num_threads=1):
+    for i in prange(nmax,nogil=True,num_threads=4):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
@@ -207,9 +207,10 @@ cpdef double get_order(double[:,:] arr,int nmax):
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
     cdef:
-      double[:, :, :] lab
       double[:,:] Qab = np.zeros((3,3),dtype=np.double)
+      double[:,:,:] Qab_temp = np.zeros((nmax,3,3),dtype=np.double)
       double[:,:] delta = np.eye(3,3,dtype=np.double)
+      double[:,:,:] lab 
       int a, b, i, j
       int nmax_sq = 2*nmax*nmax
     #
@@ -218,11 +219,15 @@ cpdef double get_order(double[:,:] arr,int nmax):
     #
     
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
-    for i in prange(nmax,nogil=True,num_threads=1):
+    for i in prange(nmax,nogil=True,num_threads=4):
         for j in range(nmax):
             for a in range(3):
                 for b in range(3):
-                    Qab[a,b] += (3*lab[a,i,j]*lab[b,i,j] - delta[a,b])/nmax_sq
+                    Qab_temp[i,a,b] += (3*lab[a,i,j]*lab[b,i,j] - delta[a,b])/nmax_sq
+    for i in range(nmax):
+        for a in range(3):
+            for b in range(3):
+                Qab[a,b]+=Qab_temp[i,a,b]
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
@@ -252,22 +257,17 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
     cdef:
       double scale=0.1+Ts
       int accept = 0
-      long [:,:] xran, yran
       double [:,:] aran
-      int i,j, ix, iy
+      int i,j
       double ang, en0, en1, boltz 
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
     cdef double [:,:] rand_dist = np.random.random_sample((nmax,nmax))
-    for i in prange(nmax, nogil=True, num_threads=1):
+    for i in prange(nmax,nogil=True,num_threads=4):
         for j in range(nmax):
-            ix = xran[i,j]
-            iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
-            arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            en0 = one_energy(arr,i,j,nmax)
+            arr[i,j] += ang
+            en1 = one_energy(arr,i,j,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -278,7 +278,7 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
                 if boltz >= rand_dist[i,j]:
                     accept += 1
                 else:
-                    arr[ix,iy] -= ang
+                    arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag, save_file):
