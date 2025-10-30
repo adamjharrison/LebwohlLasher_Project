@@ -195,6 +195,7 @@ def get_order(arr: np.ndarray,nmax: int)-> float:
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
     Qab = np.zeros((3,3))
+    Qab_temp = np.zeros((nmax,3,3))
     delta = np.eye(3,3)
     #
     # Generate a 3D unit vector for each cell (i,j) and
@@ -205,13 +206,18 @@ def get_order(arr: np.ndarray,nmax: int)-> float:
         for j in range(nmax):
             for a in range(3):
                 for b in range(3):
-                    Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
+                    Qab_temp[i,a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
+                    
+    for i in range(nmax):
+      for a in range(3):
+          for b in range(3):
+              Qab[a,b] += Qab_temp[i,a,b]
     Qab = Qab/(2*nmax*nmax)
-    Qab = (Qab + Qab.T) / 2.0 #averages out numerical differences due to parallel operations
+    #Qab = (Qab + Qab.T) / 2.0 #averages out numerical differences due to parallel operations
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-@numba.njit
+@numba.njit(parallel=True)
 def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
     """
     Arguments:
@@ -235,18 +241,14 @@ def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
     # with temperature.
     scale=0.1+Ts
     accept = 0
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.randn(nmax,nmax)*scale
     rand_int = np.random.random_sample((nmax,nmax))
-    for i in range(nmax):
+    for i in numba.prange(nmax):
         for j in range(nmax):
-            ix = xran[i,j]
-            iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
-            arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            en0 = one_energy(arr,i,j,nmax)
+            arr[i,j] += ang
+            en1 = one_energy(arr,i,j,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -257,7 +259,7 @@ def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
                 if boltz >= rand_int[i,j]:
                     accept += 1
                 else:
-                    arr[ix,iy] -= ang
+                    arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag,save_file):
