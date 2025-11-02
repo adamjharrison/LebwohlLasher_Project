@@ -172,8 +172,8 @@ def one_energy(arr,ix,iy,nmax,neighbours=None,rows=None):
       ixm = (ix-1)%nmax
       ixp = (ix+1)%nmax
       ang = arr[ix,iy]-arr[ixm,iy]
-      ang = arr[ix,iy]-arr[ixp,iy]
       en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix,iy]-arr[ixp,iy]
       en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
@@ -327,7 +327,6 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     
     # Set initial values in arrays
     energy_local[0] = all_energy(sub_lattice,nmax,rows,neighbours)
-    ratio_local[0] = 0.5 # ideal value
     Qab_local = get_order(sub_lattice,nmax,rows)
     comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
     if (id==0):
@@ -373,7 +372,8 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else 0
     comm.Gatherv(sub_lattice[0:rows,:],recvbuf,root=0)
     if (id==0):
-      energy = energy/(nmax*nmax)
+      ratio = ratio/(nmax*nmax)
+      ratio[0] = 0.5 # ideal value
       final = MPI.Wtime()
       runtime = final-initial
     
