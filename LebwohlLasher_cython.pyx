@@ -262,7 +262,7 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
       double ang, en0, en1, boltz 
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
     cdef double [:,:] rand_dist = np.random.random_sample((nmax,nmax))
-    for i in range(nmax):
+    for i in prange(nmax,nogil=True,num_threads=1):
         for j in range(nmax):
             ang = aran[i,j]
             en0 = one_energy(arr,i,j,nmax)
