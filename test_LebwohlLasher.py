@@ -1,6 +1,7 @@
 import pytest
-import LebwohlLasher as LL
+import LebwohlLasher_mpi4py as LL
 import numpy as np
+import mpi4py
 
 def test_initdat():
     '''
