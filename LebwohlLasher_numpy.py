@@ -128,7 +128,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-def one_energy(arr,ix,iy,nmax):
+def one_energy(arr,ix,nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -143,26 +143,27 @@ def one_energy(arr,ix,iy,nmax):
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    en = 0.0
+    enp = 0.0
     ixp = (ix+1)%nmax # These are the coordinates
     ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
-    iym = (iy-1)%nmax #
+    iyp = np.roll(arr[ix],1)
+    iym = np.roll(arr[ix],-1)
 #
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-arr[ixp,iy]
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-arr[ixm,iy]
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-arr[ix,iyp]
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-arr[ix,iym]
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en = np.sum(enp)
     return en
 #=======================================================================
-def all_energy(arr,nmax):
+def energy(arr,nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -175,8 +176,38 @@ def all_energy(arr,nmax):
     """
     enall = 0.0
     for i in range(nmax):
-        for j in range(nmax):
-            enall += one_energy(arr,i,j,nmax)
+      enall+=energy(arr,i,nmax)
+    return enall
+#=======================================================================
+def all_energy(arr,nmax):
+    """
+    Arguments:
+	  arr (float(nmax,nmax)) = array that contains lattice data;
+      nmax (int) = side length of square lattice.
+    Description:
+      Function to compute the energy of the entire lattice. Output
+      is in reduced units (U/epsilon).
+	Returns:
+	  enall (float) = reduced energy of lattice.
+    """
+    en = 0.0
+    ixp = np.roll(arr,1,axis=0)
+    ixm = np.roll(arr,-1,axis=0)
+    iyp = np.roll(arr,1,axis=1)
+    iym = np.roll(arr,-1,axis=1)
+#
+# Add together the 4 neighbour contributions
+# to the energy
+#
+    ang = np.cos(arr-ixp)
+    en += 0.5*(1.0 - 3.0*ang**2)
+    ang = np.cos(arr-ixm)
+    en += 0.5*(1.0 - 3.0*ang**2)
+    ang = np.cos(arr-iyp)
+    en += 0.5*(1.0 - 3.0*ang**2)
+    ang = np.cos(arr-iym)
+    en += 0.5*(1.0 - 3.0*ang**2)
+    enall = np.sum(en)
     return enall
 #=======================================================================
 def get_order(arr,nmax):
@@ -228,22 +259,21 @@ def MC_step(arr,Ts,nmax):
     accept = 0
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
     for i in range(nmax):
-        for j in range(nmax):
-            ang = aran[i,j]
-            en0 = one_energy(arr,i,j,nmax)
-            arr[i,j] += ang
-            en1 = one_energy(arr,i,j,nmax)
-            if en1<=en0:
-                accept += 1
-            else:
-            # Now apply the Monte Carlo test - compare
-            # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+      ang = aran[i,j]
+      en0 = one_energy(arr,i,j,nmax)
+      arr[i,j] += ang
+      en1 = one_energy(arr,i,j,nmax)
+      if en1<=en0:
+          accept += 1
+      else:
+      # Now apply the Monte Carlo test - compare
+      # exp( -(E_new - E_old) / T* ) >= rand(0,1)
+          boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0):
-                    accept += 1
-                else:
-                    arr[i,j] -= ang
+          if boltz >= np.random.uniform(0.0,1.0):
+              accept += 1
+          else:
+              arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag,save_file):
