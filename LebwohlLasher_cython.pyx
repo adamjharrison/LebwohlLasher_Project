@@ -29,6 +29,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from libc.math cimport cos
+from mpi4py import MPI
 cimport numpy as cnp
 cnp.import_array()
 #=======================================================================
@@ -76,7 +77,7 @@ def plotdat(arr,pflag,nmax):
         mpl.rc('image', cmap='rainbow')
         for i in range(nmax):
             for j in range(nmax):
-                cols[i,j] = one_energy(arr,i,j,nmax)
+                cols[i,j] = one_energy(arr,i,j,nmax,np.zeros((1,1)),0)
         norm = plt.Normalize(cols.min(), cols.max())
     elif pflag==2: # colour the arrows according to angle
         mpl.rc('image', cmap='hsv')
@@ -130,7 +131,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
+cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax,double[:,:] neighbours,int rows):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -149,26 +150,40 @@ cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
       double en = 0.0
       double ang
       int ixp, ixm, iyp, iym
-      
-    ixp = (ix+1)%nmax # These are the coordinates
-    ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
+
+    iyp = (iy+1)%nmax # neighbour with wraparound
     iym = (iy-1)%nmax #
 #
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     ang = arr[ix,iy]-arr[ix,iyp]
     en += 0.5*(1.0 - 3.0*cos(ang)**2)
     ang = arr[ix,iy]-arr[ix,iym]
     en += 0.5*(1.0 - 3.0*cos(ang)**2)
+
+    if rows>0:
+      if ix==0:
+        ang = arr[ix,iy]-neighbours[0,iy]
+      else:
+        ang = arr[ix,iy]-arr[ix-1,iy]
+      en += 0.5*(1.0 - 3.0*cos(ang)**2)
+      
+      if ix==rows-1:
+        ang = arr[ix,iy]-neighbours[1,iy]
+      else:
+        ang = arr[ix,iy]-arr[ix+1,iy]
+      en += 0.5*(1.0 - 3.0*cos(ang)**2)
+    else:
+      ixm = (ix-1)%nmax
+      ixp = (ix+1)%nmax
+      ang = arr[ix,iy]-arr[ixm,iy]
+      en += 0.5*(1.0 - 3.0*cos(ang)**2)
+      ang = arr[ix,iy]-arr[ixp,iy]
+      en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-cdef double all_energy(double[:,:] arr,int nmax):
+cdef double all_energy(double[:,:] arr,int nmax,double[:,:] neighbours,int rows):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -182,12 +197,12 @@ cdef double all_energy(double[:,:] arr,int nmax):
     cdef:
       double enall = 0.0
       int i, j
-    for i in range(nmax):
+    for i in range(rows):
         for j in range(nmax):
-            enall += one_energy(arr,i,j,nmax)
+            enall += one_energy(arr,i,j,nmax,neighbours,rows)
     return enall
 #=======================================================================
-cdef double get_order(double[:,:] arr,int nmax):
+cdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -208,17 +223,15 @@ cdef double get_order(double[:,:] arr,int nmax):
     # Generate a 3D unit vector for each cell (i,j) and
     # put it in a (3,i,j) array.
     #
-    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
+    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,rows,nmax)
     for a in range(3):
         for b in range(3):
-            for i in range(nmax):
+            for i in range(rows):
                 for j in range(nmax):
                     Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
-    Qab = Qab/(2*nmax*nmax)
-    eigenvalues,eigenvectors = np.linalg.eig(Qab)
-    return eigenvalues.max()
+    return Qab
 #=======================================================================
-def MC_step(double[:,:] arr,double Ts,int nmax):
+def MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] neighbours):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -246,17 +259,18 @@ def MC_step(double[:,:] arr,double Ts,int nmax):
       double [:,:] aran
       int i,j, ix, iy
       double ang, en0, en1, boltz 
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
+    xran = np.random.randint(0,high=rows, size=(rows,nmax))
+    yran = np.random.randint(0,high=nmax, size=(rows,nmax))
+    aran = np.random.normal(scale=scale, size=(rows,nmax))
+    uran = np.random.uniform(size=(rows,nmax))
+    for i in range(rows):
         for j in range(nmax):
             ix = xran[i,j]
             iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
+            en0 = one_energy(arr,ix,iy,nmax,neighbours,rows)
             arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            en1 = one_energy(arr,ix,iy,nmax,neighbours,rows)
             if en1<=en0:
                 accept += 1
             else:
@@ -264,11 +278,11 @@ def MC_step(double[:,:] arr,double Ts,int nmax):
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0):
+                if boltz >= uran[i,j]:
                     accept += 1
                 else:
                     arr[ix,iy] -= ang
-    return accept/(nmax*nmax)
+    return accept
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag, save_file):
     """
@@ -284,33 +298,103 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
       NULL
     """
     # Create and initialise lattice
-    lattice = initdat(nmax)
+    comm = MPI.COMM_WORLD
+    id = comm.Get_rank()
+    ntasks = comm.Get_size()
+
+    temp_rows = nmax//ntasks
+    rem = nmax%ntasks
+    if id<rem:
+        rows=temp_rows+1
+    else:
+        rows=temp_rows
+    sub_lattice = np.zeros((rows,nmax),dtype=np.dtype('d'))
+    up = (id-1)%ntasks
+    down = (id+1)%ntasks
+    if id==0:
+        lattice = initdat(nmax)
     # Plot initial frame of lattice
-    plotdat(lattice,pflag,nmax)
+        plotdat(lattice,pflag,nmax)
+        counts=[0]*ntasks
+        disp=[0]*ntasks
+        for i in range(ntasks):
+            rows_i = temp_rows
+            if i<rem:
+                rows_i+=1
+            counts[i]=rows_i*nmax
+            disp[i]=sum(counts[:i])
+            sendbuf=[lattice,counts,disp,MPI.DOUBLE]
+    else:
+        sendbuf=None
+        lattice=None
+    comm.Scatterv(sendbuf,sub_lattice,root=0)
+    neighbours =np.zeros((2,nmax),dtype=np.dtype('d')) 
+    comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
+    comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
     # Create arrays to store energy, acceptance ratio and order parameter
     energy = np.zeros(nsteps+1,dtype=np.dtype('d'))
     ratio = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    Qab = np.zeros((3,3))
+    energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
     order = np.zeros(nsteps+1,dtype=np.dtype('d'))
     # Set initial values in arrays
-    energy[0] = all_energy(lattice,nmax)
-    ratio[0] = 0.5 # ideal value
-    order[0] = get_order(lattice,nmax)
-
+    energy_local[0] = all_energy(sub_lattice,nmax,neighbours,rows)
+    Qab_local = get_order(sub_lattice,nmax,rows)
+    comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+    if (id==0):
+      order = np.zeros(nsteps+1,dtype=np.dtype('d'))
+      Qab=Qab/(2*nmax*nmax)
+      eigenvalues,eigenvectors = np.linalg.eig(Qab)
+      order[0] = eigenvalues.max()
+    comm.Barrier()
     # Begin doing and timing some MC steps.
-    initial = time.time()
+    if (id==0):
+      initial = MPI.Wtime()
     for it in range(1,nsteps+1):
-        ratio[it] = MC_step(lattice,temp,nmax)
-        energy[it] = all_energy(lattice,nmax)
-        order[it] = get_order(lattice,nmax)
-    final = time.time()
-    runtime = final-initial
-    
+        if(id%2==0):
+          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,neighbours)
+          comm.Send(sub_lattice[0,:],dest=up)
+          comm.Send(sub_lattice[rows-1,:],dest=down)
+        if(id%2==1):
+          comm.Recv(neighbours[0],source=up)
+          comm.Recv(neighbours[1],source=down)
+          
+        comm.Barrier()
+        
+        if(id%2==1):
+          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,neighbours)
+          comm.Send(sub_lattice[0,:],dest=up)
+          comm.Send(sub_lattice[rows-1,:],dest=down)
+        if(id%2==0):
+          comm.Recv(neighbours[0],source=up)
+          comm.Recv(neighbours[1],source=down)
+          
+        comm.Barrier()
+        
+        energy_local[it] = all_energy(sub_lattice,nmax,neighbours,rows)
+        Qab_local = get_order(sub_lattice,nmax,rows)
+        comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+        if (id==0):
+          Qab=Qab/(2*nmax*nmax)
+          eigenvalues,eigenvectors = np.linalg.eig(Qab)
+          order[it] = eigenvalues.max()
+    comm.Barrier()
+    comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
+    comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
+    recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else None
+    comm.Gatherv(sub_lattice,recvbuf,root=0)
+    if (id==0):
+      ratio = ratio/(nmax*nmax)
+      ratio[0] = 0.5 # ideal value
+      final = MPI.Wtime()
+      runtime = final-initial
     # Final outputs
-    print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
+      print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
     # Plot final frame of lattice and generate output file
-    if save_file==0:
-      savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
-    plotdat(lattice,pflag,nmax)
+      if save_file==0:
+        savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
+        plotdat(lattice,pflag,nmax)
 #=======================================================================
 # Main part of program, getting command line arguments and calling
 # main simulation function.
