@@ -285,7 +285,7 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     comm = MPI.COMM_WORLD
     id = comm.Get_rank()
     ntasks = comm.Get_size()
-    rng = np.random.default_rng(seed=id+int(time.time()))
+    rng = np.random.default_rng(seed=id*int(time.time()))
     # Create and initialise lattice
     temp_rows = nmax // ntasks
     rem = nmax%ntasks
