@@ -200,8 +200,8 @@ cpdef double all_energy(double[:,:] arr,int nmax,double[:,:] neighbours,int rows
     cdef:
       double enall = 0.0
       int i, j
-    for i in range(rows):
-        for j in range(nmax):
+    for j in range(nmax):
+        for i in range(rows):
             enall += one_energy(arr,i,j,nmax,neighbours,rows)
     return enall
 #=======================================================================
@@ -220,7 +220,7 @@ cpdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
     cdef:
-      double[:, :, :] lab
+      double[:, :, :] lab = np.zeros((3,nmax,nmax),dtype=np.double)
       double[:, :] Qab = np.zeros((3,3),dtype=np.float64)
       double[:, :] delta = np.eye(3,3,dtype=np.float64)
       int a, b, i, j
@@ -238,7 +238,7 @@ cpdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] neighbours):
+cpdef int MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,rng,double[:,:] neighbours):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -266,10 +266,10 @@ cpdef int MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] n
       double [:,:] aran
       int i,j, ix, iy
       double ang, en0, en1, boltz 
-    xran = np.random.randint(0,high=rows, size=(rows,nmax))
-    yran = np.random.randint(0,high=nmax, size=(rows,nmax))
-    aran = np.random.normal(scale=scale, size=(rows,nmax))
-    uran = np.random.uniform(size=(rows,nmax))
+    xran = rng.integers(0,high=rows, size=(rows,nmax))
+    yran = rng.integers(0,high=nmax, size=(rows,nmax))
+    aran = rng.normal(scale=scale, size=(rows,nmax))
+    uran = rng.uniform(size=(rows,nmax))
     for i in range(rows):
         for j in range(nmax):
             ix = xran[i,j]
@@ -308,10 +308,11 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
     comm = MPI.COMM_WORLD
     id = comm.Get_rank()
     ntasks = comm.Get_size()
+    rng = np.random.default_rng(seed=id*int(time.time()))
 
     temp_rows = nmax//ntasks
     rem = nmax%ntasks
-    if id<rem:
+    if (id<rem) and (ntasks>1):
         rows=temp_rows+1
     else:
         rows=temp_rows
@@ -322,36 +323,38 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
         lattice = initdat(nmax)
     # Plot initial frame of lattice
         plotdat(lattice,pflag,nmax)
-        counts=[0]*ntasks
-        disp=[0]*ntasks
-        for i in range(ntasks):
-            rows_i = temp_rows
-            if i<rem:
-                rows_i+=1
-            counts[i]=rows_i*nmax
-            disp[i]=sum(counts[:i])
-            sendbuf=[lattice,counts,disp,MPI.DOUBLE]
+        if ntasks>1:
+          counts=[0]*ntasks
+          disp=[0]*ntasks
+          for i in range(ntasks):
+              rows_i = temp_rows
+              if i<rem:
+                  rows_i+=1
+              counts[i]=rows_i*nmax
+              disp[i]=sum(counts[:i])
+              sendbuf=[lattice,counts,disp,MPI.DOUBLE]
     else:
         sendbuf=None
         lattice=None
-    comm.Scatterv(sendbuf,sub_lattice,root=0)
     neighbours =np.zeros((2,nmax),dtype=np.dtype('d')) 
-    comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
-    comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
+    if ntasks>1:
+      comm.Scatterv(sendbuf,sub_lattice,root=0)
+      comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
+      comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
     # Create arrays to store energy, acceptance ratio and order parameter
     energy = np.zeros(nsteps+1,dtype=np.dtype('d'))
     ratio = np.zeros(nsteps+1,dtype=np.dtype('d'))
-    Qab = np.zeros((3,3))
-    energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
-    ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    Qab = np.zeros((3,3), dtype=np.float64)
     order = np.zeros(nsteps+1,dtype=np.dtype('d'))
-    # Set initial values in arrays
-    energy_local[0] = all_energy(sub_lattice,nmax,neighbours,rows)
     Qab_local = get_order(sub_lattice,nmax,rows)
-    comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+    if ntasks>1:
+      energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+      energy_local[0] = all_energy(sub_lattice,nmax,neighbours,rows)
+      ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+      comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
     if (id==0):
       order = np.zeros(nsteps+1,dtype=np.dtype('d'))
-      Qab=Qab/(2*nmax*nmax)
+      Qab=np.asarray(Qab_local)/(2*nmax*nmax)
       eigenvalues,eigenvectors = np.linalg.eig(Qab)
       order[0] = eigenvalues.max()
     comm.Barrier()
@@ -359,38 +362,47 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
     if (id==0):
       initial = MPI.Wtime()
     for it in range(1,nsteps+1):
-        if(id%2==0):
-          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,neighbours)
-          comm.Send(sub_lattice[0,:],dest=up)
-          comm.Send(sub_lattice[rows-1,:],dest=down)
-        if(id%2==1):
-          comm.Recv(neighbours[0],source=up)
-          comm.Recv(neighbours[1],source=down)
+        if(ntasks>1):
+          if(id%2==0):
+            ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+            comm.Send(sub_lattice[0,:],dest=up)
+            comm.Send(sub_lattice[rows-1,:],dest=down)
+          if(id%2==1):
+            comm.Recv(neighbours[0],source=up)
+            comm.Recv(neighbours[1],source=down)
+            
+          comm.Barrier()
           
-        comm.Barrier()
-        
-        if(id%2==1):
-          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,neighbours)
-          comm.Send(sub_lattice[0,:],dest=up)
-          comm.Send(sub_lattice[rows-1,:],dest=down)
-        if(id%2==0):
-          comm.Recv(neighbours[0],source=up)
-          comm.Recv(neighbours[1],source=down)
+          if(id%2==1):
+            ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+            comm.Send(sub_lattice[0,:],dest=up)
+            comm.Send(sub_lattice[rows-1,:],dest=down)
+          if(id%2==0):
+            comm.Recv(neighbours[0],source=up)
+            comm.Recv(neighbours[1],source=down)
+            
+          comm.Barrier()
           
-        comm.Barrier()
-        
-        energy_local[it] = all_energy(sub_lattice,nmax,neighbours,rows)
-        Qab_local = get_order(sub_lattice,nmax,rows)
-        comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
-        if (id==0):
-          Qab=Qab/(2*nmax*nmax)
+          energy_local[it] = all_energy(sub_lattice,nmax,neighbours,rows)
+          Qab_local = get_order(sub_lattice,nmax,rows)
+          comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+          if (id==0):
+            Qab=Qab/(2*nmax*nmax)
+            eigenvalues,eigenvectors = np.linalg.eig(Qab)
+            order[it] = eigenvalues.max()
+        else:
+          MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+          energy[it] = all_energy(sub_lattice,nmax,neighbours,rows)
+          Qab_local = get_order(sub_lattice,nmax,rows)
+          Qab=np.asarray(Qab_local)/(2*nmax*nmax)
           eigenvalues,eigenvectors = np.linalg.eig(Qab)
           order[it] = eigenvalues.max()
     comm.Barrier()
-    comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
-    comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
-    recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else None
-    comm.Gatherv(sub_lattice,recvbuf,root=0)
+    if ntasks>1:
+      comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
+      comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
+      recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else None
+      comm.Gatherv(sub_lattice,recvbuf,root=0)
     if (id==0):
       ratio = ratio/(nmax*nmax)
       ratio[0] = 0.5 # ideal value
