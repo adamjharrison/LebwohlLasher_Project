@@ -1,5 +1,5 @@
 import sys
-from LebwohlLasher_cython import main
+from LebwohlLasher_cython_omp import main
 
 if int(len(sys.argv)) == 6:
         PROGNAME = sys.argv[0]

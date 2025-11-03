@@ -5,9 +5,9 @@ import numpy
 
 ext_modules = [
     Extension(
-        "LebwohlLasher_cython",
-        ["LebwohlLasher_cython.pyx"],
-        extra_compile_args=['-fopenmp',
+        "LebwohlLasher_cython_omp",
+        ["LebwohlLasher_cython_omp.pyx"],
+        extra_compile_args=['-O3','-fopenmp',
             '-I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/'],
         extra_link_args=['-lgomp',
             '-Wl,-rpath,/opt/homebrew/opt/gcc/lib/gcc/current/',
@@ -16,5 +16,5 @@ ext_modules = [
     )
 ]
 
-setup(name="LebwholLasher_cython",
+setup(name="LebwholLasher_cython_omp",
       ext_modules=cythonize(ext_modules),install_requires=['numpy'],)
