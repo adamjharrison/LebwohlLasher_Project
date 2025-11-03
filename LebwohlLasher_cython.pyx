@@ -28,8 +28,9 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from libc.math cimport cos
+from libc.math cimport cos, exp
 cimport numpy as cnp
+cimport cython
 cnp.import_array()
 #=======================================================================
 def initdat(nmax):
@@ -130,7 +131,9 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -168,7 +171,7 @@ cdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
     en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-cdef double all_energy(double[:,:] arr,int nmax):
+cpdef double all_energy(double[:,:] arr,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -187,7 +190,9 @@ cdef double all_energy(double[:,:] arr,int nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-cdef double get_order(double[:,:] arr,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double get_order(double[:,:] arr,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -200,7 +205,7 @@ cdef double get_order(double[:,:] arr,int nmax):
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
     cdef:
-      double[:, :, :] lab
+      double[:, :, :] lab = np.zeros((3,nmax,nmax),dtype=np.double)
       double[:, :] Qab = np.zeros((3,3),dtype=np.double)
       double[:, :] delta = np.eye(3,3,dtype=np.double)
       int a, b, i, j
@@ -218,7 +223,9 @@ cdef double get_order(double[:,:] arr,int nmax):
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-def MC_step(double[:,:] arr,double Ts,int nmax):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -263,7 +270,7 @@ def MC_step(double[:,:] arr,double Ts,int nmax):
             else:
             # Now apply the Monte Carlo test - compare
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+                boltz = exp( -(en1 - en0) / Ts )
 
                 if boltz >= uran[i,j]:
                     accept += 1
