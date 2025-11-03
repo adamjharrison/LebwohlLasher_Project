@@ -152,17 +152,17 @@ def one_energy(arr,ix,iy,nmax):
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix]-arr[ixp,iy]
+    ang = arr[ix,iy]-arr[ixp,iy]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-arr[ixm,iy]
+    ang = arr[ix,iy]-arr[ixm,iy]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-arr[ix,iyp]
+    ang = arr[ix,iy]-arr[ix,iyp]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-arr[ix,iym]
+    ang = arr[ix,iy]-arr[ix,iym]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-def row_energy(arr,ix,nmax):
+def row_energy(arr,ix,nmax,mask=None):
     """
     Arguments:
     arr (float(nmax,nmax)) = array that contains lattice data;
@@ -177,25 +177,31 @@ def row_energy(arr,ix,nmax):
   Returns:
     en (float) = reduced energy of cell.
     """
-    enp = 0.0
-    ixp = np.roll(arr[ix],1,axis=0)
-    ixm = np.roll(arr[ix],-1,axis=0)
-    iyp = arr[ix+1]
-    iym = arr[ix-1]
-    #
-    # Add together the 4 neighbour contributions
-    # to the energy
-    #
-    ang = arr[ix]-ixp
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-ixm
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-iyp
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix]-iym
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    en = np.sum(enp)
-    return en
+    enr = 0
+    ixp = np.roll(arr[ix],1)
+    ixm = np.roll(arr[ix],-1)
+    iyp = (ix+1)%nmax
+    iym = (ix-1)%nmax
+    
+    if mask is not None:
+      ang = arr[ix,mask]-ixp[mask]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix,mask]-ixm[mask]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix,mask]-arr[iyp,mask]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix,mask]-arr[iym,mask]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    else:
+      ang = arr[ix]-ixp
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix]-ixm
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix]-arr[iyp]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+      ang = arr[ix]-arr[iym]
+      enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    return enr
 #=======================================================================
 def all_energy(arr,nmax):
     """
@@ -232,9 +238,10 @@ def get_order(arr,nmax):
     # Generate a 3D unit vector for each cell (i,j) and
     # put it in a (3,i,j) array.
     #
-    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
-    Qab+=3*np.einsum('aij,bij->ab',lab,lab)-nmax*nmax*delta
-    Qab = Qab/(2*nmax*nmax)
+    nsq = nmax*nmax
+    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nsq)
+    Qab = 3*(lab@lab.T) - delta*nsq
+    Qab = Qab/(2*nsq)
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
@@ -261,23 +268,29 @@ def MC_step(arr,Ts,nmax):
     # with temperature.
     scale=0.1+Ts
     accept = 0
-    aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for j in range(nmax):
-      ang = aran[i,j]
-      en0 = row_energy(arr,j,nmax)
-      arr[i,j] += ang
-      en1 = row_energy(arr,j,nmax)
-      if en1<=en0:
-          accept += 1
-      else:
-      # Now apply the Monte Carlo test - compare
-      # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-          boltz = np.exp( -(en1 - en0) / Ts )
+    aran = np.random.normal(scale=scale,size=(nmax,nmax))
+    uran = np.random.uniform(size=(nmax,nmax))
+    for oe in [0,1]:
+        oe_row = np.arange(nmax) % 2 == oe
+        oe_row_ind = np.where(oe_row)[0]
+        for i in range(nmax):
+            ang = aran[i,oe_row]
+            old_ang = arr[i, oe_row]
+            en0 = row_energy(arr,i,nmax,oe_row)
+            arr[i,oe_row] += ang
+            en1 = row_energy(arr,i,nmax,oe_row)
+            en_change = en1-en0
+            
+            boltz = np.exp( -(en_change) / Ts )
+            accept_ind = (en_change<0)|(boltz>=uran[i,oe_row])
+            accept += np.sum(accept_ind)
+            reject_ind= ~accept_ind
+            rejects = oe_row_ind[reject_ind]
+            
+            if rejects.size > 0:
+              reject_ang = old_ang[reject_ind]
+              arr[i, rejects] = reject_ang
 
-          if boltz >= np.random.uniform(0.0,1.0):
-              accept += 1
-          else:
-              arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag,save_file):
