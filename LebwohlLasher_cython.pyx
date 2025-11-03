@@ -28,9 +28,10 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from libc.math cimport cos
+from libc.math cimport cos, exp
 from mpi4py import MPI
 cimport numpy as cnp
+cimport cython
 cnp.import_array()
 #=======================================================================
 def initdat(nmax):
@@ -131,6 +132,8 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax,double[:,:] neighbours,int rows):
     """
     Arguments:
@@ -183,7 +186,7 @@ cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax,double[:,:] neigh
       en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-cdef double all_energy(double[:,:] arr,int nmax,double[:,:] neighbours,int rows):
+cpdef double all_energy(double[:,:] arr,int nmax,double[:,:] neighbours,int rows):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -202,7 +205,9 @@ cdef double all_energy(double[:,:] arr,int nmax,double[:,:] neighbours,int rows)
             enall += one_energy(arr,i,j,nmax,neighbours,rows)
     return enall
 #=======================================================================
-cdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -216,8 +221,8 @@ cdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
     """
     cdef:
       double[:, :, :] lab
-      cnp.ndarray[double, ndim=2] Qab = np.zeros((3,3),dtype=np.float64)
-      cnp.ndarray[double, ndim=2] delta = np.eye(3,3,dtype=np.float64)
+      double[:, :] Qab = np.zeros((3,3),dtype=np.float64)
+      double[:, :] delta = np.eye(3,3,dtype=np.float64)
       int a, b, i, j
     #
     # Generate a 3D unit vector for each cell (i,j) and
@@ -231,7 +236,9 @@ cdef double[:,:] get_order(double[:,:] arr,int nmax,int rows):
                     Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
     return Qab
 #=======================================================================
-def MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] neighbours):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef int MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] neighbours):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -276,7 +283,7 @@ def MC_half_step(double[:,:] arr,double Ts,int nmax,int rows,double[:,:] neighbo
             else:
             # Now apply the Monte Carlo test - compare
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+                boltz = exp( -(en1 - en0) / Ts )
 
                 if boltz >= uran[i,j]:
                     accept += 1
