@@ -128,7 +128,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-def one_energy(arr,ix,nmax):
+def one_energy(arr,ix,iy,nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -143,41 +143,59 @@ def one_energy(arr,ix,nmax):
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    enp = 0.0
+    en = 0.0
     ixp = (ix+1)%nmax # These are the coordinates
     ixm = (ix-1)%nmax # of the neighbours
-    iyp = np.roll(arr[ix],1)
-    iym = np.roll(arr[ix],-1)
+    iyp = (iy+1)%nmax
+    iym = (iy-1)%nmax
 #
 # Add together the 4 neighbour contributions
 # to the energy
 #
     ang = arr[ix]-arr[ixp,iy]
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     ang = arr[ix]-arr[ixm,iy]
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     ang = arr[ix]-arr[ix,iyp]
-    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     ang = arr[ix]-arr[ix,iym]
+    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    return en
+#=======================================================================
+def row_energy(arr,ix,nmax):
+    """
+    Arguments:
+    arr (float(nmax,nmax)) = array that contains lattice data;
+    ix (int) = x lattice coordinate of cell;
+    iy (int) = y lattice coordinate of cell;
+      nmax (int) = side length of square lattice.
+    Description:
+      Function that computes the energy of a single cell of the
+      lattice taking into account periodic boundaries.  Working with
+      reduced energy (U/epsilon), equivalent to setting epsilon=1 in
+      equation (1) in the project notes.
+  Returns:
+    en (float) = reduced energy of cell.
+    """
+    enp = 0.0
+    ixp = np.roll(arr[ix],1,axis=0)
+    ixm = np.roll(arr[ix],-1,axis=0)
+    iyp = arr[ix+1]
+    iym = arr[ix-1]
+    #
+    # Add together the 4 neighbour contributions
+    # to the energy
+    #
+    ang = arr[ix]-ixp
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-ixm
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-iyp
+    enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    ang = arr[ix]-iym
     enp += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     en = np.sum(enp)
     return en
-#=======================================================================
-def energy(arr,nmax):
-    """
-    Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
-      nmax (int) = side length of square lattice.
-    Description:
-      Function to compute the energy of the entire lattice. Output
-      is in reduced units (U/epsilon).
-	Returns:
-	  enall (float) = reduced energy of lattice.
-    """
-    enall = 0.0
-    for i in range(nmax):
-      enall+=energy(arr,i,nmax)
-    return enall
 #=======================================================================
 def all_energy(arr,nmax):
     """
@@ -190,23 +208,9 @@ def all_energy(arr,nmax):
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    en = 0.0
-    ixp = np.roll(arr,1,axis=0)
-    ixm = np.roll(arr,-1,axis=0)
-    iyp = np.roll(arr,1,axis=1)
-    iym = np.roll(arr,-1,axis=1)
-#
-# Add together the 4 neighbour contributions
-# to the energy
-#
-    ang = np.cos(arr-ixp)
-    en += 0.5*(1.0 - 3.0*ang**2)
-    ang = np.cos(arr-ixm)
-    en += 0.5*(1.0 - 3.0*ang**2)
-    ang = np.cos(arr-iyp)
-    en += 0.5*(1.0 - 3.0*ang**2)
-    ang = np.cos(arr-iym)
-    en += 0.5*(1.0 - 3.0*ang**2)
+    en=0.0
+    for i in range(nmax):
+        en += row_energy(arr,i,nmax)
     enall = np.sum(en)
     return enall
 #=======================================================================
@@ -258,11 +262,11 @@ def MC_step(arr,Ts,nmax):
     scale=0.1+Ts
     accept = 0
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
+    for j in range(nmax):
       ang = aran[i,j]
-      en0 = one_energy(arr,i,j,nmax)
+      en0 = row_energy(arr,j,nmax)
       arr[i,j] += ang
-      en1 = one_energy(arr,i,j,nmax)
+      en1 = row_energy(arr,j,nmax)
       if en1<=en0:
           accept += 1
       else:
