@@ -163,7 +163,7 @@ def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-@numba.njit()
+@numba.njit
 def all_energy(arr: np.ndarray,nmax: int)->float:
     """
     Arguments:
