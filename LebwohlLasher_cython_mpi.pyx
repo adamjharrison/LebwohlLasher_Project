@@ -403,6 +403,8 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
       comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
       recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else None
       comm.Gatherv(sub_lattice,recvbuf,root=0)
+    else:
+      lattice = sub_lattice
     if (id==0):
       ratio = ratio/(nmax*nmax)
       ratio[0] = 0.5 # ideal value
@@ -413,7 +415,7 @@ def main(program, nsteps, nmax, temp, pflag, save_file):
     # Plot final frame of lattice and generate output file
       if save_file==0:
         savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
-        plotdat(lattice,pflag,nmax)
+      plotdat(lattice,pflag,nmax)
 #=======================================================================
 # Main part of program, getting command line arguments and calling
 # main simulation function.
