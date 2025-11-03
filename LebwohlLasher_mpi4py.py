@@ -189,8 +189,8 @@ def all_energy(arr,nmax,rows,neighbours):
 	  enall (float) = reduced energy of lattice.
     """
     enall = 0.0
-    for i in range(rows):
-        for j in range(nmax):
+    for j in range(nmax):
+        for i in range(rows):
             enall += one_energy(arr,i,j,nmax,neighbours,rows)
     return enall
 #=======================================================================
