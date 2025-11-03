@@ -214,6 +214,7 @@ cpdef double get_order(double[:,:] arr,int nmax):
     # put it in a (3,i,j) array.
     #
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
+    
     for a in range(3):
         for b in range(3):
             for i in range(nmax):

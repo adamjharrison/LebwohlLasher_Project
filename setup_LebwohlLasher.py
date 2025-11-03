@@ -7,6 +7,7 @@ ext_modules = [
     Extension(
         "LebwohlLasher_cython",
         ["LebwohlLasher_cython.pyx"],
+        extra_compile_args=['-O3'],
         include_dirs=[numpy.get_include()]
     )
 ]
