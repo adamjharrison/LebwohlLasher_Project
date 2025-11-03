@@ -217,7 +217,7 @@ def get_order(arr: np.ndarray,nmax: int)-> float:
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-@numba.njit(parallel=True)
+@numba.njit
 def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
     """
     Arguments:
@@ -241,14 +241,18 @@ def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
     # with temperature.
     scale=0.1+Ts
     accept = 0
+    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
+    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.randn(nmax,nmax)*scale
     rand_int = np.random.random_sample((nmax,nmax))
-    for i in numba.prange(nmax):
+    for i in range(nmax):
         for j in range(nmax):
+            ix = xran[i,j]
+            iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,i,j,nmax)
-            arr[i,j] += ang
-            en1 = one_energy(arr,i,j,nmax)
+            en0 = one_energy(arr,ix,iy,nmax)
+            arr[ix,iy] += ang
+            en1 = one_energy(arr,ix,iy,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -259,7 +263,7 @@ def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
                 if boltz >= rand_int[i,j]:
                     accept += 1
                 else:
-                    arr[i,j] -= ang
+                    arr[ix,iy] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag,save_file):
