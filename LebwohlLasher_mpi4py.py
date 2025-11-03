@@ -75,7 +75,7 @@ def plotdat(arr,pflag,nmax):
         mpl.rc('image', cmap='rainbow')
         for i in range(nmax):
             for j in range(nmax):
-                cols[i,j] = one_energy(arr,i,j,nmax)
+                cols[i,j] = one_energy(arr,i,j,nmax,rows=0)
         norm = plt.Normalize(cols.min(), cols.max())
     elif pflag==2: # colour the arrows according to angle
         mpl.rc('image', cmap='hsv')
@@ -156,7 +156,7 @@ def one_energy(arr,ix,iy,nmax,neighbours=None,rows=None):
     ang = arr[ix,iy]-arr[ix,iym]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
 
-    if neighbours is not None:
+    if (rows > 0) and (rows<nmax):
       if ix==0:
         ang = arr[ix,iy]-neighbours[0,iy]
       else:
@@ -289,7 +289,7 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     # Create and initialise lattice
     temp_rows = nmax // ntasks
     rem = nmax%ntasks
-    if(id<rem):
+    if(id<rem)and(ntasks>1):
       rows=temp_rows + 1
     else:
       rows=temp_rows
@@ -300,38 +300,42 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
       lattice = np.zeros((nmax,nmax),dtype=np.dtype('d'))
       lattice = initdat(nmax)
       plotdat(lattice,pflag,nmax)
-      
-      counts = [0]*ntasks
-      disp = [0]*ntasks
-      for i in range(ntasks):
-        rows_i = temp_rows
-        if(i<rem):
-          rows_i=temp_rows + 1
-        counts[i] = rows_i*nmax
-        disp[i] = sum(counts[:i])
-      sendbuf = [lattice,counts,disp,MPI.DOUBLE]
+      if ntasks>1:
+        counts = [0]*ntasks
+        disp = [0]*ntasks
+        for i in range(ntasks):
+          rows_i = temp_rows
+          if(i<rem):
+            rows_i=temp_rows + 1
+          counts[i] = rows_i*nmax
+          disp[i] = sum(counts[:i])
+        sendbuf = [lattice,counts,disp,MPI.DOUBLE]
     else:
       sendbuf = None
       lattice = None
-    comm.Scatterv(sendbuf,sub_lattice[0:rows,:],root=0)
     neighbours = np.zeros((2,nmax),dtype=np.dtype('d'))
-    comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
-    comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
+    if ntasks>1:
+      comm.Scatterv(sendbuf,sub_lattice[0:rows,:],root=0)
+      comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
+      comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
     # Plot initial frame of lattice
     # Create arrays to store energy, acceptance ratio and order parameter
     energy = np.zeros(nsteps+1,dtype=np.dtype('d'))
     ratio = np.zeros(nsteps+1,dtype=np.dtype('d'))
     Qab = np.zeros((3,3))
-    energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
-    ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+    Qab_local = get_order(sub_lattice,nmax,rows)
+    if ntasks>1:
+      energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
+      ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
     
     # Set initial values in arrays
-    energy_local[0] = all_energy(sub_lattice,nmax,rows,neighbours)
-    Qab_local = get_order(sub_lattice,nmax,rows)
-    comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+      energy_local[0] = all_energy(sub_lattice,nmax,rows,neighbours)
+      comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+    else:
+      energy[0] = all_energy(sub_lattice,nmax,rows,neighbours)
     if (id==0):
       order = np.zeros(nsteps+1,dtype=np.dtype('d'))
-      Qab=Qab/(2*nmax*nmax)
+      Qab=Qab_local/(2*nmax*nmax)
       eigenvalues,eigenvectors = np.linalg.eig(Qab)
       order[0] = eigenvalues.max()
     comm.Barrier()
@@ -339,38 +343,49 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     if (id==0):
       initial = MPI.Wtime()
     for it in range(1,nsteps+1):
-        if(id%2==0):
-          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
-          comm.Send(sub_lattice[0,:],dest=up)
-          comm.Send(sub_lattice[rows-1,:],dest=down)
-        if(id%2==1):
-          comm.Recv(neighbours[0],source=up)
-          comm.Recv(neighbours[1],source=down)
+        if ntasks>1:
+          if(id%2==0):
+            ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+            comm.Send(sub_lattice[0,:],dest=up)
+            comm.Send(sub_lattice[rows-1,:],dest=down)
+          if(id%2==1):
+            comm.Recv(neighbours[0],source=up)
+            comm.Recv(neighbours[1],source=down)
+            
+          comm.Barrier()
           
-        comm.Barrier()
-        
-        if(id%2==1):
-          ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
-          comm.Send(sub_lattice[0,:],dest=up)
-          comm.Send(sub_lattice[rows-1,:],dest=down)
-        if(id%2==0):
-          comm.Recv(neighbours[0],source=up)
-          comm.Recv(neighbours[1],source=down)
+          if(id%2==1):
+            ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+            comm.Send(sub_lattice[0,:],dest=up)
+            comm.Send(sub_lattice[rows-1,:],dest=down)
+          if(id%2==0):
+            comm.Recv(neighbours[0],source=up)
+            comm.Recv(neighbours[1],source=down)
+            
+          comm.Barrier()
           
-        comm.Barrier()
-        
-        energy_local[it] = all_energy(sub_lattice,nmax,rows,neighbours)
-        Qab_local = get_order(sub_lattice,nmax,rows)
-        comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
-        if (id==0):
-          Qab=Qab/(2*nmax*nmax)
+          energy_local[it] = all_energy(sub_lattice,nmax,rows,neighbours)
+          Qab_local = get_order(sub_lattice,nmax,rows)
+          comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
+          if (id==0):
+            Qab=Qab/(2*nmax*nmax)
+            eigenvalues,eigenvectors = np.linalg.eig(Qab)
+            order[it] = eigenvalues.max()
+        else:
+          ratio[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
+          energy[it] = all_energy(sub_lattice,nmax,rows,neighbours)
+          Qab_local = get_order(sub_lattice,nmax,rows)
+          Qab=Qab_local/(2*nmax*nmax)
           eigenvalues,eigenvectors = np.linalg.eig(Qab)
           order[it] = eigenvalues.max()
     comm.Barrier()
-    comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
-    comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
-    recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else 0
-    comm.Gatherv(sub_lattice[0:rows,:],recvbuf,root=0)
+    if ntasks>1:
+      comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
+      comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
+      recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else 0
+      comm.Gatherv(sub_lattice[0:rows,:],recvbuf,root=0)
+    else:
+      lattice = sub_lattice
     if (id==0):
       ratio = ratio/(nmax*nmax)
       ratio[0] = 0.5 # ideal value
