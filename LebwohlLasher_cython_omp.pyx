@@ -210,18 +210,15 @@ cpdef double get_order(double[:,:] arr,int nmax):
       double[:,:] Qab = np.zeros((3,3),dtype=np.double)
       double[:,:,:] Qab_temp = np.zeros((nmax,3,3),dtype=np.double)
       double[:,:] delta = np.eye(3,3,dtype=np.double)
-      double[:,:,:] lab = np.empty((3,nmax,nmax),dtype=np.double)
+      double[:,:,:] lab = np.zeros((3,nmax,nmax),dtype=np.double)
       int a, b, i, j
     #
     # Generate a 3D unit vector for each cell (i,j) and
     # put it in a (3,i,j) array.
     #
-    
+    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
     for i in prange(nmax,nogil=True,num_threads=4):
         for j in range(nmax):
-            lab[0,i,j] = cos(arr[i,j])
-            lab[1,i,j] = sin(arr[i,j])
-            lab[2,i,j] = 0.0
             for a in range(3):
                 for b in range(3):
                     Qab_temp[i,a,b] += (3*lab[a,i,j]*lab[b,i,j] - delta[a,b])
