@@ -1,5 +1,5 @@
 import pytest
-import LebwohlLasher_numba as LL
+import run_LebwohlLasher as LL
 import numpy as np
 import mpi4py
 
