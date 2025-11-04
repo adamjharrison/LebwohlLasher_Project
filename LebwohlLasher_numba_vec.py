@@ -128,6 +128,9 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
+@numba.vectorize('float64(float64)', target='cpu')
+def ang_energy(ang: float) -> float:
+    return 0.5 * (1.0 - 3.0 * np.cos(ang)**2)
 @numba.njit
 def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
     """
@@ -153,17 +156,13 @@ def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += ang_energy(arr[ix,iy]-arr[ixp,iy])
+    en += ang_energy(arr[ix,iy]-arr[ixm,iy])
+    en += ang_energy(arr[ix,iy]-arr[ix,iyp])
+    en += ang_energy(arr[ix,iy]-arr[ix,iym])
     return en
 #=======================================================================
-@numba.njit()
+@numba.njit
 def all_energy(arr: np.ndarray,nmax: int)->float:
     """
     Arguments:
