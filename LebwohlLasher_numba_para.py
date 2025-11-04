@@ -129,7 +129,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
     FileOut.close()
 #=======================================================================
 @numba.njit
-def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
+def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float: #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -163,8 +163,8 @@ def one_energy(arr:np.ndarray,ix:int,iy:int,nmax:int)->float:
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-@numba.njit(parallel=True)
-def all_energy(arr: np.ndarray,nmax: int)->float:
+@numba.njit(parallel=True)#parallelised for loop
+def all_energy(arr: np.ndarray,nmax: int)->float: #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -181,8 +181,8 @@ def all_energy(arr: np.ndarray,nmax: int)->float:
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-@numba.njit(parallel=True)
-def get_order(arr: np.ndarray,nmax: int)-> float:
+@numba.njit(parallel=True)#parallelised for loop
+def get_order(arr: np.ndarray,nmax: int)-> float: #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -218,7 +218,7 @@ def get_order(arr: np.ndarray,nmax: int)-> float:
     return eigenvalues.max()
 #=======================================================================
 @numba.njit
-def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float:
+def MC_step(arr: np.ndarray,Ts: int,nmax: int)->float: #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;

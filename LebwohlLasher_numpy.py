@@ -167,23 +167,23 @@ def row_energy(arr,ix,nmax,mask=None):
     Arguments:
     arr (float(nmax,nmax)) = array that contains lattice data;
     ix (int) = x lattice coordinate of cell;
-    iy (int) = y lattice coordinate of cell;
-      nmax (int) = side length of square lattice.
+    nmax (int) = side length of square lattice.
+    mask(float(n)) = array that contains selected indicies to calculate energy for
     Description:
       Function that computes the energy of a single cell of the
       lattice taking into account periodic boundaries.  Working with
       reduced energy (U/epsilon), equivalent to setting epsilon=1 in
       equation (1) in the project notes.
   Returns:
-    en (float) = reduced energy of cell.
+    enr (float(nmax)) = array of reduced energy of cell.
     """
     enr = 0
-    ixp = np.roll(arr[ix],1)
-    ixm = np.roll(arr[ix],-1)
+    ixp = np.roll(arr[ix],1) #create array of left neighbours
+    ixm = np.roll(arr[ix],-1) #create array of right neighbours
     iyp = (ix+1)%nmax
     iym = (ix-1)%nmax
     
-    if mask is not None:
+    if mask is not None:#if mask is applied only calculate energy of selected indicies
       ang = arr[ix,mask]-ixp[mask]
       enr += 0.5*(1.0 - 3.0*np.cos(ang)**2)
       ang = arr[ix,mask]-ixm[mask]
@@ -216,7 +216,7 @@ def all_energy(arr,nmax):
     """
     en=0.0
     for i in range(nmax):
-        en += row_energy(arr,i,nmax)
+        en += row_energy(arr,i,nmax) #returns array of row energy rather than energy for a site
     enall = np.sum(en)
     return enall
 #=======================================================================
@@ -239,8 +239,10 @@ def get_order(arr,nmax):
     # put it in a (3,i,j) array.
     #
     nsq = nmax*nmax
-    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nsq)
-    Qab = 3*(lab@lab.T) - delta*nsq
+    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nsq) 
+    #flattened tensor (3,nmax,nmax) to matrix(3,nmax*nmax)
+    #each j in lab(i,j) corresponds to a site on the grid (1D)
+    Qab = 3*(lab@lab.T) - delta*nsq #matrix multiplication for all elements Qab(a,b)
     Qab = Qab/(2*nsq)
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
@@ -270,24 +272,24 @@ def MC_step(arr,Ts,nmax):
     accept = 0
     aran = np.random.normal(scale=scale,size=(nmax,nmax))
     uran = np.random.uniform(size=(nmax,nmax))
-    for oe in [0,1]:
-        oe_row = np.arange(nmax) % 2 == oe
+    for oe in [0,1]: #operates over all even columns then odd columns
+        oe_row = np.arange(nmax) % 2 == oe #gets the indexes for odd/even rows 
         oe_row_ind = np.where(oe_row)[0]
-        for i in range(nmax):
-            ang = aran[i,oe_row]
-            old_ang = arr[i, oe_row]
-            en0 = row_energy(arr,i,nmax,oe_row)
-            arr[i,oe_row] += ang
-            en1 = row_energy(arr,i,nmax,oe_row)
-            en_change = en1-en0
+        for i in range(nmax): #loops over rows
+            ang = aran[i,oe_row]#gets list of rows len(oe_row) 
+            old_ang = arr[i, oe_row]#stores old array values for later
+            en0 = row_energy(arr,i,nmax,oe_row) #calculates energy of selected sites for a given row
+            arr[i,oe_row] += ang #applies changes to angles
+            en1 = row_energy(arr,i,nmax,oe_row) #recalculates energy of selected sites for a given row
+            en_change = en1-en0 # list of energy changes
             
-            boltz = np.exp( -(en_change) / Ts )
-            accept_ind = (en_change<0)|(boltz>=uran[i,oe_row])
-            accept += np.sum(accept_ind)
-            reject_ind= ~accept_ind
+            boltz = np.exp( -(en_change) / Ts ) #list of boltz factors
+            accept_ind = (en_change<0)|(boltz>=uran[i,oe_row]) #checks if each odd/even site in row should be accepted
+            accept += np.sum(accept_ind)#add number of accepted site to count
+            reject_ind= ~accept_ind#finds the inverse of the selected sites
             rejects = oe_row_ind[reject_ind]
             
-            if rejects.size > 0:
+            if rejects.size > 0:#rejected changes are reverted
               reject_ang = old_ang[reject_ind]
               arr[i, rejects] = reject_ang
 

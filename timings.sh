@@ -8,7 +8,7 @@ do
   for (( i=1; i<=$RUNS; i++ ))
   do
     
-    TIME=$(python run_LebwohlLasher.py 1000 $PARAM 0.65 0 1 | awk -F 'Time: ' '{print $2}' | awk '{print $1}' | tr -d ',')
+    TIME=$(python LebwohlLasher_mpi4py.py 1000 $PARAM 0.65 0 1 | awk -F 'Time: ' '{print $2}' | awk '{print $1}' | tr -d ',')
 
     echo "$PARAM,$TIME"
   done

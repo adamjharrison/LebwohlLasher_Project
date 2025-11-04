@@ -135,7 +135,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax)noexcept nogil:
+cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax)noexcept nogil: #type hinted functions and removed gil as called from cdef function
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -150,7 +150,7 @@ cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax)noexcept nogil:
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    cdef:
+    cdef:  #type hinted variables
       double en = 0.0
       double ang
       int ixp, ixm, iyp, iym
@@ -173,7 +173,7 @@ cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax)noexcept nogil:
     en += 0.5*(1.0 - 3.0*cos_ang*cos_ang)
     return en
 #=======================================================================
-cpdef double all_energy(double[:,:] arr,int nmax):
+cpdef double all_energy(double[:,:] arr,int nmax): #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -184,7 +184,7 @@ cpdef double all_energy(double[:,:] arr,int nmax):
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    cdef:
+    cdef:  #type hinted variables
       double enall = 0.0
       int i, j
     for i in prange(nmax,nogil=True,num_threads=4):
@@ -194,7 +194,7 @@ cpdef double all_energy(double[:,:] arr,int nmax):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double get_order(double[:,:] arr,int nmax):
+cpdef double get_order(double[:,:] arr,int nmax): #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -206,7 +206,7 @@ cpdef double get_order(double[:,:] arr,int nmax):
 	Returns:
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
-    cdef:
+    cdef:  #type hinted variables
       double[:,:] Qab = np.zeros((3,3),dtype=np.double)
       double[:,:,:] Qab_temp = np.zeros((nmax,3,3),dtype=np.double)
       double[:,:] delta = np.eye(3,3,dtype=np.double)
@@ -232,7 +232,7 @@ cpdef double get_order(double[:,:] arr,int nmax):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
+cpdef double MC_step(double[:,:] arr,double Ts,int nmax): #type hinted functions
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -253,20 +253,25 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
     # using lots of individual calls.  "scale" sets the width
     # of the distribution for the angle changes - increases
     # with temperature.
-    cdef:
+    cdef:  #type hinted variables
       double scale=0.1+Ts
       int accept = 0
+      long [:,:] xran, yran
       double [:,:] aran,uran
-      int i,j
+      int i,j, ix, iy
       double ang, en0, en1, boltz 
+    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
+    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
     uran = np.random.random_sample((nmax,nmax))
-    for i in range(nmax):
+    for i in prange(nmax,nogil=True,num_threads=4):
         for j in range(nmax):
+            ix = xran[i,j]
+            iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,i,j,nmax)
-            arr[i,j] += ang
-            en1 = one_energy(arr,i,j,nmax)
+            en0 = one_energy(arr,ix,iy,nmax)
+            arr[ix,iy] += ang
+            en1 = one_energy(arr,ix,iy,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -277,7 +282,7 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
                 if boltz >= uran[i,j]:
                     accept += 1
                 else:
-                    arr[i,j] -= ang
+                    arr[ix,iy] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag, save_file):

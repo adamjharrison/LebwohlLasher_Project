@@ -132,10 +132,12 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
 def one_energy(arr,ix,iy,nmax,neighbours=None,rows=None):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
-	  ix (int) = x lattice coordinate of cell;
-	  iy (int) = y lattice coordinate of cell;
+	    arr (float(nmax,nmax)) = array that contains lattice data;
+	    ix (int) = x lattice coordinate of cell;
+	    iy (int) = y lattice coordinate of cell;
       nmax (int) = side length of square lattice.
+      neighbours(float(2,nmax)) = array of neighbours from adjacent tasks
+      rows (int) = number of rows in sub_lattice (=nmax if ntasks is 1)
     Description:
       Function that computes the energy of a single cell of the
       lattice taking into account periodic boundaries.  Working with
@@ -156,19 +158,19 @@ def one_energy(arr,ix,iy,nmax,neighbours=None,rows=None):
     ang = arr[ix,iy]-arr[ix,iym]
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
 
-    if (rows > 0) and (rows<nmax):
-      if ix==0:
-        ang = arr[ix,iy]-neighbours[0,iy]
+    if (rows > 0) and (rows<nmax): #if not serial and if rows are provided
+      if ix==0:#if first row in sub_lattice then use bottom row from adjacent task
+        ang = arr[ix,iy]-neighbours[0,iy] 
       else:
-        ang = arr[ix,iy]-arr[ix-1,iy]
+        ang = arr[ix,iy]-arr[ix-1,iy]#otherwise normal behaviour
       en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
       
-      if ix==rows-1:
+      if ix==rows-1:#if last row in sub_lattice then use top row from adjacent task
         ang = arr[ix,iy]-neighbours[1,iy]
       else:
-        ang = arr[ix,iy]-arr[ix+1,iy]
+        ang = arr[ix,iy]-arr[ix+1,iy]#otherwise normal behaviour
       en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    else:
+    else:#otherwise normal behaviour
       ixm = (ix-1)%nmax
       ixp = (ix+1)%nmax
       ang = arr[ix,iy]-arr[ixm,iy]
@@ -180,8 +182,9 @@ def one_energy(arr,ix,iy,nmax,neighbours=None,rows=None):
 def all_energy(arr,nmax,rows,neighbours):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
+	    arr (float(rows,nmax)) = array that contains lattice data;
       nmax (int) = side length of square lattice.
+      rows (int) = number of rows in sub_lattice (=nmax if ntasks is 1)
     Description:
       Function to compute the energy of the entire lattice. Output
       is in reduced units (U/epsilon).
@@ -197,8 +200,9 @@ def all_energy(arr,nmax,rows,neighbours):
 def get_order(arr,nmax,rows):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
+	    arr (float(rows,nmax)) = array that contains lattice data;
       nmax (int) = side length of square lattice.
+      rows (int) = number of rows in sub_lattice (=nmax if ntasks is 1)
     Description:
       Function to calculate the order parameter of a lattice
       using the Q tensor approach, as in equation (3) of the
@@ -223,9 +227,12 @@ def get_order(arr,nmax,rows):
 def MC_half_step(arr,Ts,nmax,rows,rng,neighbours):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
-	  Ts (float) = reduced temperature (range 0 to 2);
+	    arr (float(rows,nmax)) = array that contains lattice data;
+	    Ts (float) = reduced temperature (range 0 to 2);
       nmax (int) = side length of square lattice.
+      rows (int) = number of rows in sub_lattice (=nmax if ntasks is 1)
+      rng = random number generator with seed for specific process
+      neighbours (float(2,nmax)) = array of neighbours from adjacent tasks
     Description:
       Function to perform one MC step, which consists of an average
       of 1 attempted change per lattice site.  Working with reduced
@@ -282,25 +289,25 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     Returns:
       NULL
     """
-    comm = MPI.COMM_WORLD
-    id = comm.Get_rank()
-    ntasks = comm.Get_size()
-    rng = np.random.default_rng(seed=id*int(time.time()))
+    comm = MPI.COMM_WORLD #mpi comm variable
+    id = comm.Get_rank() # id of specific task
+    ntasks = comm.Get_size() # number of tasks
+    rng = np.random.default_rng(seed=id*int(time.time())) # random seed different depending on task
     # Create and initialise lattice
-    temp_rows = nmax // ntasks
-    rem = nmax%ntasks
-    if(id<rem)and(ntasks>1):
-      rows=temp_rows + 1
+    temp_rows = nmax // ntasks #divide rows by number of tasks
+    rem = nmax%ntasks # check if there is a remainder
+    if(id<rem)and(ntasks>1): #if not serial
+      rows=temp_rows + 1 # include remainder on some tasks
     else:
       rows=temp_rows
     sub_lattice = np.zeros((rows,nmax),dtype=np.dtype('d'))
-    up= (id-1)%ntasks
+    up= (id-1)%ntasks # determine adjacent tasks
     down = (id+1)%ntasks
     if (id==0):
       lattice = np.zeros((nmax,nmax),dtype=np.dtype('d'))
       lattice = initdat(nmax)
       plotdat(lattice,pflag,nmax)
-      if ntasks>1:
+      if ntasks>1: #determine size of sub lattices of other tasks for sendbuf
         counts = [0]*ntasks
         disp = [0]*ntasks
         for i in range(ntasks):
@@ -314,7 +321,7 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
       sendbuf = None
       lattice = None
     neighbours = np.zeros((2,nmax),dtype=np.dtype('d'))
-    if ntasks>1:
+    if ntasks>1: #send slices of array to tasks and end rows from adjacent tasks
       comm.Scatterv(sendbuf,sub_lattice[0:rows,:],root=0)
       comm.Sendrecv(sendbuf=sub_lattice[0,:],dest=up,sendtag=00,recvbuf=neighbours[1],source=down,recvtag=00)
       comm.Sendrecv(sendbuf=sub_lattice[rows-1,:],dest=down,sendtag=11,recvbuf=neighbours[0],source=up,recvtag=11)
@@ -323,13 +330,13 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
     energy = np.zeros(nsteps+1,dtype=np.dtype('d'))
     ratio = np.zeros(nsteps+1,dtype=np.dtype('d'))
     Qab = np.zeros((3,3))
-    Qab_local = get_order(sub_lattice,nmax,rows)
-    if ntasks>1:
+    Qab_local = get_order(sub_lattice,nmax,rows)#determine initial order
+    if ntasks>1: # create local tasks
       energy_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
       ratio_local = np.zeros(nsteps+1,dtype=np.dtype('d'))
     
     # Set initial values in arrays
-      energy_local[0] = all_energy(sub_lattice,nmax,rows,neighbours)
+      energy_local[0] = all_energy(sub_lattice,nmax,rows,neighbours) #determine initial energy
       comm.Reduce(Qab_local,Qab,op=MPI.SUM,root=0)
     else:
       energy[0] = all_energy(sub_lattice,nmax,rows,neighbours)
@@ -344,7 +351,7 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
       initial = MPI.Wtime()
     for it in range(1,nsteps+1):
         if ntasks>1:
-          if(id%2==0):
+          if(id%2==0): #even tasks do MC step, then communicate their top and bottom rows to adjacent tasks
             ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
             comm.Send(sub_lattice[0,:],dest=up)
             comm.Send(sub_lattice[rows-1,:],dest=down)
@@ -354,7 +361,7 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
             
           comm.Barrier()
           
-          if(id%2==1):
+          if(id%2==1):#odd tasks do MC step, then communicate their top and bottom rows to adjacent tasks
             ratio_local[it] = MC_half_step(sub_lattice,temp,nmax,rows,rng,neighbours)
             comm.Send(sub_lattice[0,:],dest=up)
             comm.Send(sub_lattice[rows-1,:],dest=down)
@@ -379,11 +386,12 @@ def main(program, nsteps, nmax, temp, pflag,save_file):
           eigenvalues,eigenvectors = np.linalg.eig(Qab)
           order[it] = eigenvalues.max()
     comm.Barrier()
-    if ntasks>1:
+    if ntasks>1: #reduce local variables and recombine lattice
       comm.Reduce(energy_local,energy,op=MPI.SUM,root=0)
       comm.Reduce(ratio_local,ratio,op=MPI.SUM,root=0)
       recvbuf = [lattice,counts,disp,MPI.DOUBLE] if id==0 else 0
       comm.Gatherv(sub_lattice[0:rows,:],recvbuf,root=0)
+      comm.Barrier()
     else:
       lattice = sub_lattice
     if (id==0):

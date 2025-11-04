@@ -133,7 +133,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
+cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax): #type hinted function
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -148,7 +148,7 @@ cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    cdef:
+    cdef:  #type hinted variables
       double en = 0.0
       double ang
       int ixp, ixm, iyp, iym
@@ -171,7 +171,7 @@ cpdef double one_energy(double[:,:] arr,int ix,int iy,int nmax):
     en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-cpdef double all_energy(double[:,:] arr,int nmax):
+cpdef double all_energy(double[:,:] arr,int nmax): #type hinted function
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -182,7 +182,7 @@ cpdef double all_energy(double[:,:] arr,int nmax):
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    cdef:
+    cdef:  #type hinted variables
       double enall = 0.0
       int i, j
     for i in range(nmax):
@@ -192,7 +192,7 @@ cpdef double all_energy(double[:,:] arr,int nmax):
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double get_order(double[:,:] arr,int nmax):
+cpdef double get_order(double[:,:] arr,int nmax): #type hinted function
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -204,7 +204,7 @@ cpdef double get_order(double[:,:] arr,int nmax):
 	Returns:
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
-    cdef:
+    cdef:  #type hinted variables
       double[:, :, :] lab = np.zeros((3,nmax,nmax),dtype=np.double)
       double[:, :] Qab = np.zeros((3,3),dtype=np.double)
       double[:, :] delta = np.eye(3,3,dtype=np.double)
@@ -220,13 +220,13 @@ cpdef double get_order(double[:,:] arr,int nmax):
             for i in range(nmax):
                 for j in range(nmax):
                     Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
-            Qab[a,b] = Qab[a,b]/(2*nmax*nmax)
+            Qab[a,b] = Qab[a,b]/(2*nmax*nmax) #divides each index of Qab individually (numpy array division doesn't work with memory view)
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
+cpdef double MC_step(double[:,:] arr,double Ts,int nmax): #type hinted function
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -247,7 +247,7 @@ cpdef double MC_step(double[:,:] arr,double Ts,int nmax):
     # using lots of individual calls.  "scale" sets the width
     # of the distribution for the angle changes - increases
     # with temperature.
-    cdef:
+    cdef: #type hint variables in for loop
       double scale=0.1+Ts
       int accept = 0
       long [:,:] xran, yran
